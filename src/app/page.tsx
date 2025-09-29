@@ -7,6 +7,7 @@ export default function Home(): React.ReactNode {
     const [hash, setHash] = useState<string>("");
     const [fileName, setFileName] = useState<string>("");
     const [isCalculating, setIsCalculating] = useState<boolean>(false);
+    const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const calculateSHA256 = async (file: File): Promise<string> => {
@@ -54,6 +55,41 @@ export default function Home(): React.ReactNode {
                 await navigator.clipboard.writeText(hash);
                 // Add a toast notification here
             } catch {}
+        }
+    };
+
+    const submitToServer = async (): Promise<void> => {
+        if (!hash) return;
+
+        setIsSubmitting(true);
+        try {
+            const response = await fetch("http://localhost:8080/stamp", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ hash }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            // Create and download the JSON file
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "proof.json";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch {
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -123,6 +159,23 @@ export default function Home(): React.ReactNode {
                                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
                                 >
                                     Copy
+                                </button>
+                            </div>
+
+                            <div className="mt-4">
+                                <button
+                                    onClick={submitToServer}
+                                    disabled={isSubmitting}
+                                    className="w-full px-4 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors font-medium"
+                                >
+                                    {isSubmitting ? (
+                                        <div className="flex items-center justify-center space-x-2">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                            <span>Submitting to server...</span>
+                                        </div>
+                                    ) : (
+                                        "Submit to Server & Download Proof"
+                                    )}
                                 </button>
                             </div>
                         </div>
