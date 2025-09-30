@@ -95,7 +95,7 @@ export default function VerifyPage(): React.ReactNode {
         setUpdateMessage("");
         try {
             // Call the API to check for updated proof
-            const response = await fetch("http://localhost:8080/proof", {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/proof`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
