@@ -5,7 +5,7 @@ import { calculateSHA256 } from "../utils/fileHash";
 import { parseProofFile } from "../utils/proofParser";
 import { verifyFileHash, verifyLocalProof, verifyOnChainCommitment } from "../utils/verification";
 import type { ProofResponse } from "../types/proof";
-import type { VerificationResult } from "../utils/verification";
+import type { VerificationResult, VerificationResults } from "../utils/verification";
 
 export default function VerifyPage(): React.ReactNode {
     const [originalFile, setOriginalFile] = useState<File | null>(null);
@@ -14,7 +14,13 @@ export default function VerifyPage(): React.ReactNode {
     const [isCalculatingHash, setIsCalculatingHash] = useState<boolean>(false);
     const [proofData, setProofData] = useState<ProofResponse | null>(null);
     const [proofParseError, setProofParseError] = useState<string>("");
-    const [verificationResults, setVerificationResults] = useState<VerificationResult[]>([]);
+    const [verificationResults, setVerificationResults] = useState<VerificationResults>({
+        fileHashMatch: null,
+        localProof: null,
+        onChainCommitment: null,
+    });
+    const [isCheckingForUpdate, setIsCheckingForUpdate] = useState<boolean>(false);
+    const [updateMessage, setUpdateMessage] = useState<string>("");
     const originalFileInputRef = useRef<HTMLInputElement>(null);
     const proofFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -82,50 +88,137 @@ export default function VerifyPage(): React.ReactNode {
         event.preventDefault();
     };
 
+    const handleCheckForUpdatedProof = async (): Promise<void> => {
+        if (!originalFileHash || !proofData) return;
+
+        setIsCheckingForUpdate(true);
+        setUpdateMessage("");
+        try {
+            // Call the API to check for updated proof
+            const response = await fetch("http://localhost:8080/proof", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ hash: originalFileHash }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
+            }
+
+            const updatedProof: ProofResponse = await response.json();
+
+            // Compare the updated proof with the current proof
+            const hasChanges = compareProofs(proofData, updatedProof);
+
+            if (hasChanges) {
+                // Download the new proof file
+                await downloadUpdatedProof(updatedProof);
+                setUpdateMessage("Updated proof downloaded successfully!");
+            } else {
+                // No changes found
+                setUpdateMessage(
+                    "No updates available for this proof. Your current proof is up to date.",
+                );
+            }
+        } catch {
+            setUpdateMessage("Error checking for updates. Please try again.");
+        } finally {
+            setIsCheckingForUpdate(false);
+        }
+    };
+
+    const compareProofs = (currentProof: ProofResponse, updatedProof: ProofResponse): boolean => {
+        // Compare all fields to detect any changes
+        return (
+            currentProof.confirmed !== updatedProof.confirmed ||
+            currentProof.header_hash !== updatedProof.header_hash ||
+            currentProof.coin_id !== updatedProof.coin_id ||
+            currentProof.root_hash !== updatedProof.root_hash ||
+            currentProof.leaf_hash !== updatedProof.leaf_hash ||
+            JSON.stringify(currentProof.proof) !== JSON.stringify(updatedProof.proof)
+        );
+    };
+
+    const downloadUpdatedProof = async (updatedProof: ProofResponse): Promise<void> => {
+        if (!originalFile) return;
+
+        // Create and download the updated JSON file
+        const blob = new Blob([JSON.stringify(updatedProof, null, 2)], {
+            type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${originalFile.name}.proof.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
+    // Check if we should show the "Check for Updated Proof" button
+    const shouldShowUpdateButton = (): boolean => {
+        const { fileHashMatch, localProof, onChainCommitment } = verificationResults;
+
+        // Show button if file hash and local proof are valid, but on-chain commitment failed
+        return (
+            fileHashMatch?.passed === true &&
+            localProof?.passed === true &&
+            onChainCommitment?.passed === false
+        );
+    };
+
     // Run verification when both file hash and proof data are available
     useEffect(() => {
         const runVerification = async (): Promise<void> => {
             if (originalFileHash && proofData) {
-                const results: VerificationResult[] = [];
+                const results: VerificationResults = {
+                    fileHashMatch: null,
+                    localProof: null,
+                    onChainCommitment: null,
+                };
 
                 // Verify file hash matches leaf hash
-                const fileHashResult = verifyFileHash(originalFileHash, proofData);
-                results.push(fileHashResult);
+                results.fileHashMatch = verifyFileHash(originalFileHash, proofData);
 
                 // Only proceed with local proof verification if file hash matches
-                if (fileHashResult.passed) {
-                    const localProofResult = await verifyLocalProof(proofData);
-                    results.push(localProofResult);
+                if (results.fileHashMatch.passed) {
+                    results.localProof = await verifyLocalProof(proofData);
 
                     // Only proceed with on-chain verification if local proof is valid
-                    if (localProofResult.passed) {
-                        const onChainResult = verifyOnChainCommitment(proofData);
-                        results.push(onChainResult);
+                    if (results.localProof.passed) {
+                        results.onChainCommitment = verifyOnChainCommitment(proofData);
                     } else {
                         // Add placeholder for on-chain verification
-                        results.push({
+                        results.onChainCommitment = {
                             step: "On-Chain Commitment",
                             passed: false,
                             message: "Cannot verify on-chain commitment: local proof is invalid",
-                        });
+                        };
                     }
                 } else {
                     // Add placeholders for subsequent verifications
-                    results.push({
+                    results.localProof = {
                         step: "Local Proof",
                         passed: false,
                         message: "Cannot verify local proof: file hash does not match",
-                    });
-                    results.push({
+                    };
+                    results.onChainCommitment = {
                         step: "On-Chain Commitment",
                         passed: false,
                         message: "Cannot verify on-chain commitment: file hash does not match",
-                    });
+                    };
                 }
 
                 setVerificationResults(results);
             } else {
-                setVerificationResults([]);
+                setVerificationResults({
+                    fileHashMatch: null,
+                    localProof: null,
+                    onChainCommitment: null,
+                });
             }
         };
 
@@ -155,6 +248,63 @@ export default function VerifyPage(): React.ReactNode {
                     <p className="text-gray-600 dark:text-gray-400 mb-8">
                         Upload the original file and its proof to verify the timestamp.
                     </p>
+
+                    {/* Check for Updated Proof Button */}
+                    {shouldShowUpdateButton() && (
+                        <div className="mb-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                            <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                    <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-1">
+                                        Proof May Be Outdated
+                                    </h3>
+                                    <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                                        The local proof is valid, but the on-chain commitment could
+                                        not be verified. This might be due to missing fields in your
+                                        proof file or a blockchain reorg. Check if an updated proof
+                                        is available.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={handleCheckForUpdatedProof}
+                                    disabled={isCheckingForUpdate}
+                                    className="ml-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                                >
+                                    {isCheckingForUpdate ? (
+                                        <div className="flex items-center space-x-2">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                            <span>Checking...</span>
+                                        </div>
+                                    ) : (
+                                        "Check for Updated Proof"
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Update Message */}
+                    {updateMessage && (
+                        <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="flex items-center space-x-2">
+                                <div className="flex-shrink-0">
+                                    <svg
+                                        className="w-5 h-5 text-blue-600 dark:text-blue-400"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                    >
+                                        <path
+                                            fillRule="evenodd"
+                                            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                                            clipRule="evenodd"
+                                        />
+                                    </svg>
+                                </div>
+                                <p className="text-sm text-blue-800 dark:text-blue-200">
+                                    {updateMessage}
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Original File Upload */}
@@ -292,59 +442,69 @@ export default function VerifyPage(): React.ReactNode {
                     )}
 
                     {/* Verification Results */}
-                    {verificationResults.length > 0 && (
+                    {(verificationResults.fileHashMatch ||
+                        verificationResults.localProof ||
+                        verificationResults.onChainCommitment) && (
                         <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
                                 Verification Results:
                             </h3>
                             <div className="space-y-2">
-                                {verificationResults.map((result, index) => (
-                                    <div key={index} className="flex items-center space-x-3">
-                                        <div className="flex-shrink-0">
-                                            {result.passed ? (
-                                                <div className="w-5 h-5 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
-                                                    <svg
-                                                        className="w-3 h-3 text-green-600 dark:text-green-400"
-                                                        fill="currentColor"
-                                                        viewBox="0 0 20 20"
-                                                    >
-                                                        <path
-                                                            fillRule="evenodd"
-                                                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                                            clipRule="evenodd"
-                                                        />
-                                                    </svg>
-                                                </div>
-                                            ) : (
-                                                <div className="w-5 h-5 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center">
-                                                    <svg
-                                                        className="w-3 h-3 text-red-600 dark:text-red-400"
-                                                        fill="currentColor"
-                                                        viewBox="0 0 20 20"
-                                                    >
-                                                        <path
-                                                            fillRule="evenodd"
-                                                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                                            clipRule="evenodd"
-                                                        />
-                                                    </svg>
-                                                </div>
-                                            )}
+                                {[
+                                    verificationResults.fileHashMatch,
+                                    verificationResults.localProof,
+                                    verificationResults.onChainCommitment,
+                                ]
+                                    .filter(
+                                        (result): result is VerificationResult => result !== null,
+                                    )
+                                    .map((result, index) => (
+                                        <div key={index} className="flex items-center space-x-3">
+                                            <div className="flex-shrink-0">
+                                                {result.passed ? (
+                                                    <div className="w-5 h-5 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center">
+                                                        <svg
+                                                            className="w-3 h-3 text-green-600 dark:text-green-400"
+                                                            fill="currentColor"
+                                                            viewBox="0 0 20 20"
+                                                        >
+                                                            <path
+                                                                fillRule="evenodd"
+                                                                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                                                clipRule="evenodd"
+                                                            />
+                                                        </svg>
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-5 h-5 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center">
+                                                        <svg
+                                                            className="w-3 h-3 text-red-600 dark:text-red-400"
+                                                            fill="currentColor"
+                                                            viewBox="0 0 20 20"
+                                                        >
+                                                            <path
+                                                                fillRule="evenodd"
+                                                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                                                clipRule="evenodd"
+                                                            />
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1">
+                                                <p
+                                                    className={`text-sm font-medium ${result.passed ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`}
+                                                >
+                                                    {result.step}
+                                                </p>
+                                                <p
+                                                    className={`text-xs ${result.passed ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
+                                                >
+                                                    {result.message}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="flex-1">
-                                            <p
-                                                className={`text-sm font-medium ${result.passed ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"}`}
-                                            >
-                                                {result.step}
-                                            </p>
-                                            <p
-                                                className={`text-xs ${result.passed ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}
-                                            >
-                                                {result.message}
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))}
                             </div>
                         </div>
                     )}

@@ -7,6 +7,12 @@ export interface VerificationResult {
     message: string;
 }
 
+export interface VerificationResults {
+    fileHashMatch: VerificationResult | null;
+    localProof: VerificationResult | null;
+    onChainCommitment: VerificationResult | null;
+}
+
 /**
  * Hashes a pair of byte arrays using SHA256
  * @param left - Left byte array
