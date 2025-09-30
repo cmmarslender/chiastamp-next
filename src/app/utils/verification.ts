@@ -5,6 +5,9 @@ export interface VerificationResult {
     step: string;
     passed: boolean;
     message: string;
+    timestamp?: number; // Unix timestamp for on-chain verification
+    blockIndex?: number; // Block index for on-chain verification
+    failureReason?: "missing-data" | "invalid-data" | "api-error"; // Reason for failure
 }
 
 export interface VerificationResults {
@@ -42,6 +45,36 @@ interface BlockRecordResponse {
     success: boolean;
     error?: string;
 }
+
+/**
+ * Formats a time delta in seconds into a human-readable string
+ * @param deltaSeconds - Time difference in seconds
+ * @returns Human-readable time string (e.g., "2 hours ago", "3 days ago")
+ */
+const formatTimeDelta = (deltaSeconds: number): string => {
+    const minutes = Math.floor(deltaSeconds / 60);
+    const hours = Math.floor(deltaSeconds / 3600);
+    const days = Math.floor(deltaSeconds / 86400);
+    const weeks = Math.floor(deltaSeconds / 604800);
+    const months = Math.floor(deltaSeconds / 2592000); // ~30 days
+    const years = Math.floor(deltaSeconds / 31536000); // ~365 days
+
+    if (years > 0) {
+        return `${years} year${years === 1 ? "" : "s"} ago`;
+    } else if (months > 0) {
+        return `${months} month${months === 1 ? "" : "s"} ago`;
+    } else if (weeks > 0) {
+        return `${weeks} week${weeks === 1 ? "" : "s"} ago`;
+    } else if (days > 0) {
+        return `${days} day${days === 1 ? "" : "s"} ago`;
+    } else if (hours > 0) {
+        return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    } else if (minutes > 0) {
+        return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    } else {
+        return "just now";
+    }
+};
 
 /**
  * Hashes a pair of byte arrays using SHA256
@@ -177,6 +210,7 @@ export const verifyOnChainVerification = async (
             step: "On-Chain Verification",
             passed: false,
             message: `Cannot verify on-chain: missing or invalid fields (${missingFields.join(", ")})`,
+            failureReason: "missing-data",
         };
     }
 
@@ -208,6 +242,7 @@ export const verifyOnChainVerification = async (
                 step: "On-Chain Verification",
                 passed: false,
                 message: "Coinset API returned unsuccessful response",
+                failureReason: "api-error",
             };
         }
 
@@ -251,6 +286,7 @@ export const verifyOnChainVerification = async (
                     step: "On-Chain Verification",
                     passed: false,
                     message: "Block record API returned unsuccessful response",
+                    failureReason: "api-error",
                 };
             }
 
@@ -268,16 +304,25 @@ export const verifyOnChainVerification = async (
                 normalizedProofHeaderHash !== undefined &&
                 normalizedBlockHeaderHash !== undefined
             ) {
+                // Calculate time delta for when the file was included in the block
+                const blockTimestamp = matchingCoin.timestamp;
+                const currentTime = Math.floor(Date.now() / 1000); // Current time in seconds
+                const timeDelta = currentTime - blockTimestamp;
+                const timeAgo = formatTimeDelta(timeDelta);
+
                 return {
                     step: "On-Chain Verification",
                     passed: true,
-                    message: `Proof fully verified on-chain: coin ID ${proof.coin_id} found in block ${matchingCoin.confirmed_block_index} with matching header hash and merkle root`,
+                    message: `Proof fully verified on-chain: coin ID ${proof.coin_id} found in block ${matchingCoin.confirmed_block_index} with matching header hash and merkle root. File was included in block ${timeAgo}.`,
+                    timestamp: blockTimestamp,
+                    blockIndex: matchingCoin.confirmed_block_index,
                 };
             } else {
                 return {
                     step: "On-Chain Verification",
                     passed: false,
                     message: `Header hash mismatch: proof header hash (${proof.header_hash}) does not match block header hash (${blockHeaderHash})`,
+                    failureReason: "invalid-data",
                 };
             }
         } else {
@@ -285,6 +330,7 @@ export const verifyOnChainVerification = async (
                 step: "On-Chain Verification",
                 passed: false,
                 message: `Coin ID ${proof.coin_id} not found in coinset for root hash ${proof.root_hash}`,
+                failureReason: "invalid-data",
             };
         }
     } catch (error) {
@@ -292,6 +338,7 @@ export const verifyOnChainVerification = async (
             step: "On-Chain Verification",
             passed: false,
             message: `Error verifying on-chain: ${error instanceof Error ? error.message : "Unknown error"}`,
+            failureReason: "api-error",
         };
     }
 };

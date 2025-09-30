@@ -169,12 +169,103 @@ export default function VerifyPage(): React.ReactNode {
     const shouldShowUpdateButton = (): boolean => {
         const { fileHashMatch, localProof, onChainVerification } = verificationResults;
 
-        // Show button if file hash and local proof are valid, but on-chain verification failed
+        // Show button if file hash and local proof are valid, but on-chain verification failed due to missing data or is null
         return (
             fileHashMatch?.passed === true &&
             localProof?.passed === true &&
-            onChainVerification?.passed === false
+            (onChainVerification === null || onChainVerification?.passed === false)
         );
+    };
+
+    // Determine overall verification status
+    const getVerificationStatus = (): {
+        status: "fully-verified" | "partially-verified" | "unverified";
+        color: string;
+        textColor: string;
+    } => {
+        const { fileHashMatch, localProof, onChainVerification } = verificationResults;
+
+        // Check if all verifications are complete and passed
+        if (
+            fileHashMatch?.passed === true &&
+            localProof?.passed === true &&
+            onChainVerification?.passed === true
+        ) {
+            return {
+                status: "fully-verified",
+                color: "bg-green-100 dark:bg-green-900/20",
+                textColor: "text-green-800 dark:text-green-200",
+            };
+        }
+        // Check if file hash and local proof passed, but on-chain verification failed due to missing data or is null
+        else if (
+            fileHashMatch?.passed === true &&
+            localProof?.passed === true &&
+            (onChainVerification === null || onChainVerification.failureReason === "missing-data")
+        ) {
+            return {
+                status: "partially-verified",
+                color: "bg-orange-100 dark:bg-orange-900/20",
+                textColor: "text-orange-800 dark:text-orange-200",
+            };
+        }
+        // Any other case (file hash failed, local proof failed, on-chain failed due to invalid data, etc.)
+        else {
+            return {
+                status: "unverified",
+                color: "bg-red-100 dark:bg-red-900/20",
+                textColor: "text-red-800 dark:text-red-200",
+            };
+        }
+    };
+
+    // Extract timing information from on-chain verification result
+    const getTimingInfo = (): { dateTime: string; timeAgo: string } | null => {
+        const onChainResult = verificationResults.onChainVerification;
+        if (!onChainResult?.passed || !onChainResult.timestamp) return null;
+
+        // Format the timestamp as a readable date/time
+        const date = new Date(onChainResult.timestamp * 1000);
+        const dateTime = date.toLocaleString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            timeZoneName: "short",
+        });
+
+        // Calculate time ago
+        const currentTime = Math.floor(Date.now() / 1000);
+        const timeDelta = currentTime - onChainResult.timestamp;
+
+        // Format time delta
+        const minutes = Math.floor(timeDelta / 60);
+        const hours = Math.floor(timeDelta / 3600);
+        const days = Math.floor(timeDelta / 86400);
+        const weeks = Math.floor(timeDelta / 604800);
+        const months = Math.floor(timeDelta / 2592000);
+        const years = Math.floor(timeDelta / 31536000);
+
+        let timeAgo: string;
+        if (years > 0) {
+            timeAgo = `${years} year${years === 1 ? "" : "s"} ago`;
+        } else if (months > 0) {
+            timeAgo = `${months} month${months === 1 ? "" : "s"} ago`;
+        } else if (weeks > 0) {
+            timeAgo = `${weeks} week${weeks === 1 ? "" : "s"} ago`;
+        } else if (days > 0) {
+            timeAgo = `${days} day${days === 1 ? "" : "s"} ago`;
+        } else if (hours > 0) {
+            timeAgo = `${hours} hour${hours === 1 ? "" : "s"} ago`;
+        } else if (minutes > 0) {
+            timeAgo = `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+        } else {
+            timeAgo = "just now";
+        }
+
+        return { dateTime, timeAgo };
     };
 
     // Run verification when both file hash and proof data are available
@@ -455,8 +546,38 @@ export default function VerifyPage(): React.ReactNode {
                         verificationResults.localProof ||
                         verificationResults.onChainVerification) && (
                         <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                            {/* Verification Status Header */}
+                            {((): React.ReactNode => {
+                                const status = getVerificationStatus();
+                                const timingInfo = getTimingInfo();
+
+                                return (
+                                    <div className={`mb-4 p-4 rounded-lg ${status.color}`}>
+                                        <h2
+                                            className={`text-xl font-semibold ${status.textColor} mb-2`}
+                                        >
+                                            {status.status === "fully-verified" && "Fully Verified"}
+                                            {status.status === "partially-verified" &&
+                                                "Partially Verified"}
+                                            {status.status === "unverified" && "Unverified"}
+                                        </h2>
+                                        {status.status === "fully-verified" && timingInfo && (
+                                            <div className={`text-sm ${status.textColor}`}>
+                                                <div>Confirmed: {timingInfo.dateTime}</div>
+                                                <div>Time: {timingInfo.timeAgo}</div>
+                                            </div>
+                                        )}
+                                        {status.status === "partially-verified" && (
+                                            <div className={`text-sm ${status.textColor}`}>
+                                                Proof is valid but not yet confirmed on-chain
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })()}
+
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
-                                Verification Results:
+                                Verification Details:
                             </h3>
                             <div className="space-y-2">
                                 {[
