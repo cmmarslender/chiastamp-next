@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useState, useRef } from "react";
+import { calculateSHA256 } from "./utils/fileHash";
 
 export default function Home(): React.ReactNode {
     const [hash, setHash] = useState<string>("");
@@ -9,13 +10,6 @@ export default function Home(): React.ReactNode {
     const [isCalculating, setIsCalculating] = useState<boolean>(false);
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    const calculateSHA256 = async (file: File): Promise<string> => {
-        const buffer = await file.arrayBuffer();
-        const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-    };
 
     const processFile = async (file: File): Promise<void> => {
         setIsCalculating(true);
@@ -98,7 +92,7 @@ export default function Home(): React.ReactNode {
             <div className="max-w-2xl w-full">
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
                     <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                        ChiaStamp
+                        Stamp a File
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400 mb-8">
                         Select a file to calculate its SHA256 hash. The file will be processed
