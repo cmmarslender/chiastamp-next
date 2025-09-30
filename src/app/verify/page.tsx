@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { calculateSHA256 } from "../utils/fileHash";
 import { parseProofFile } from "../utils/proofParser";
-import { verifyFileHash, verifyLocalProof, verifyOnChainCommitment } from "../utils/verification";
+import { verifyFileHash, verifyLocalProof, verifyOnChainVerification } from "../utils/verification";
 import type { ProofResponse } from "../types/proof";
 import type { VerificationResult, VerificationResults } from "../utils/verification";
 
@@ -17,7 +17,7 @@ export default function VerifyPage(): React.ReactNode {
     const [verificationResults, setVerificationResults] = useState<VerificationResults>({
         fileHashMatch: null,
         localProof: null,
-        onChainCommitment: null,
+        onChainVerification: null,
     });
     const [isCheckingForUpdate, setIsCheckingForUpdate] = useState<boolean>(false);
     const [updateMessage, setUpdateMessage] = useState<string>("");
@@ -167,13 +167,13 @@ export default function VerifyPage(): React.ReactNode {
 
     // Check if we should show the "Check for Updated Proof" button
     const shouldShowUpdateButton = (): boolean => {
-        const { fileHashMatch, localProof, onChainCommitment } = verificationResults;
+        const { fileHashMatch, localProof, onChainVerification } = verificationResults;
 
-        // Show button if file hash and local proof are valid, but on-chain commitment failed
+        // Show button if file hash and local proof are valid, but on-chain verification failed
         return (
             fileHashMatch?.passed === true &&
             localProof?.passed === true &&
-            onChainCommitment?.passed === false
+            onChainVerification?.passed === false
         );
     };
 
@@ -184,7 +184,7 @@ export default function VerifyPage(): React.ReactNode {
                 const results: VerificationResults = {
                     fileHashMatch: null,
                     localProof: null,
-                    onChainCommitment: null,
+                    onChainVerification: null,
                 };
 
                 // Verify file hash matches leaf hash
@@ -196,13 +196,13 @@ export default function VerifyPage(): React.ReactNode {
 
                     // Only proceed with on-chain verification if local proof is valid
                     if (results.localProof.passed) {
-                        results.onChainCommitment = verifyOnChainCommitment(proofData);
+                        results.onChainVerification = await verifyOnChainVerification(proofData);
                     } else {
                         // Add placeholder for on-chain verification
-                        results.onChainCommitment = {
-                            step: "On-Chain Commitment",
+                        results.onChainVerification = {
+                            step: "On-Chain Verification",
                             passed: false,
-                            message: "Cannot verify on-chain commitment: local proof is invalid",
+                            message: "Cannot verify on-chain: local proof is invalid",
                         };
                     }
                 } else {
@@ -212,10 +212,10 @@ export default function VerifyPage(): React.ReactNode {
                         passed: false,
                         message: "Cannot verify local proof: file hash does not match",
                     };
-                    results.onChainCommitment = {
-                        step: "On-Chain Commitment",
+                    results.onChainVerification = {
+                        step: "On-Chain Verification",
                         passed: false,
-                        message: "Cannot verify on-chain commitment: file hash does not match",
+                        message: "Cannot verify on-chain: file hash does not match",
                     };
                 }
 
@@ -224,7 +224,7 @@ export default function VerifyPage(): React.ReactNode {
                 setVerificationResults({
                     fileHashMatch: null,
                     localProof: null,
-                    onChainCommitment: null,
+                    onChainVerification: null,
                 });
             }
         };
@@ -453,7 +453,7 @@ export default function VerifyPage(): React.ReactNode {
                     {/* Verification Results */}
                     {(verificationResults.fileHashMatch ||
                         verificationResults.localProof ||
-                        verificationResults.onChainCommitment) && (
+                        verificationResults.onChainVerification) && (
                         <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
                                 Verification Results:
@@ -462,7 +462,7 @@ export default function VerifyPage(): React.ReactNode {
                                 {[
                                     verificationResults.fileHashMatch,
                                     verificationResults.localProof,
-                                    verificationResults.onChainCommitment,
+                                    verificationResults.onChainVerification,
                                 ]
                                     .filter(
                                         (result): result is VerificationResult => result !== null,

@@ -10,7 +10,37 @@ export interface VerificationResult {
 export interface VerificationResults {
     fileHashMatch: VerificationResult | null;
     localProof: VerificationResult | null;
-    onChainCommitment: VerificationResult | null;
+    onChainVerification: VerificationResult | null;
+}
+
+interface CoinRecord {
+    coin: {
+        parent_coin_info: string;
+        puzzle_hash: string;
+        amount: number;
+    };
+    coinbase: boolean;
+    confirmed_block_index: number;
+    spent: boolean;
+    spent_block_index: number;
+    timestamp: number;
+}
+
+interface CoinsetResponse {
+    coin_records: CoinRecord[];
+    success: boolean;
+}
+
+interface BlockRecord {
+    header_hash: string;
+    height: number;
+    [key: string]: unknown; // Allow other fields we don't need to type
+}
+
+interface BlockRecordResponse {
+    block_record: BlockRecord;
+    success: boolean;
+    error?: string;
 }
 
 /**
@@ -123,11 +153,13 @@ export const verifyLocalProof = async (proof: ProofResponse): Promise<Verificati
 };
 
 /**
- * Verifies if the proof made it to a block (on-chain commitment)
+ * Verifies if the proof made it to a block (on-chain commitment and coinset verification)
  * @param proof - The parsed proof data
- * @returns VerificationResult indicating if the proof is confirmed on-chain
+ * @returns Promise<VerificationResult> indicating if the proof is confirmed on-chain
  */
-export const verifyOnChainCommitment = (proof: ProofResponse): VerificationResult => {
+export const verifyOnChainVerification = async (
+    proof: ProofResponse,
+): Promise<VerificationResult> => {
     // Check if all required fields are present for on-chain verification
     const isConfirmed = proof.confirmed === true;
     const hasHeaderHash = proof.header_hash !== null && proof.header_hash !== undefined;
@@ -142,19 +174,124 @@ export const verifyOnChainCommitment = (proof: ProofResponse): VerificationResul
         if (!hasCoinId) missingFields.push("coin_id");
 
         return {
-            step: "On-Chain Commitment",
+            step: "On-Chain Verification",
             passed: false,
-            message: `Cannot verify on-chain commitment: missing or invalid fields (${missingFields.join(", ")})`,
+            message: `Cannot verify on-chain: missing or invalid fields (${missingFields.join(", ")})`,
         };
     }
 
-    // All fields are present, ready for blockchain verification
-    // @TODO need to check coinset for the matching coin ID and header hash:
-    // - Get the coin by hint - hint will be the root hash, and the coin ID should match
-    // - Ensure the header hash of the coin matches the proof header hash
-    return {
-        step: "On-Chain Commitment",
-        passed: true,
-        message: `Proof confirmed on-chain with header hash: ${proof.header_hash} and coin ID: ${proof.coin_id}`,
-    };
+    // All fields are present, now verify against coinset
+    try {
+        // Call the coinset API to get coin records by hint
+        const response = await fetch(
+            `${process.env.NEXT_PUBLIC_COINSET_BASE}/get_coin_records_by_hint`,
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    hint: proof.root_hash,
+                    include_spent_coins: true,
+                }),
+            },
+        );
+
+        if (!response.ok) {
+            throw new Error(`Coinset API responded with status: ${response.status}`);
+        }
+
+        const data: CoinsetResponse = await response.json();
+
+        if (!data.success || !data.coin_records) {
+            return {
+                step: "On-Chain Verification",
+                passed: false,
+                message: "Coinset API returned unsuccessful response",
+            };
+        }
+
+        // Check if at least one coin has a parent_coin_info that matches the coin_id
+        // Strip "0x" prefix from parent_coin_info if present before comparing
+        const matchingCoin = data.coin_records.find((record: CoinRecord) => {
+            const parentCoinInfo = record.coin?.parent_coin_info;
+            if (!parentCoinInfo) return false;
+
+            // Strip "0x" prefix if present
+            const normalizedParentCoinInfo = parentCoinInfo.startsWith("0x")
+                ? parentCoinInfo.substring(2)
+                : parentCoinInfo;
+
+            return normalizedParentCoinInfo === proof.coin_id;
+        });
+
+        if (matchingCoin) {
+            // Now verify the header hash matches the block record
+            const blockResponse = await fetch(
+                `${process.env.NEXT_PUBLIC_COINSET_BASE}/get_block_record_by_height`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        height: matchingCoin.confirmed_block_index,
+                    }),
+                },
+            );
+
+            if (!blockResponse.ok) {
+                throw new Error(`Block record API responded with status: ${blockResponse.status}`);
+            }
+
+            const blockData: BlockRecordResponse = await blockResponse.json();
+
+            if (!blockData.success || !blockData.block_record) {
+                return {
+                    step: "On-Chain Verification",
+                    passed: false,
+                    message: "Block record API returned unsuccessful response",
+                };
+            }
+
+            // Check if the header hash matches
+            const blockHeaderHash = blockData.block_record.header_hash;
+            const normalizedBlockHeaderHash = blockHeaderHash.startsWith("0x")
+                ? blockHeaderHash.substring(2)
+                : blockHeaderHash;
+            const normalizedProofHeaderHash = proof.header_hash?.startsWith("0x")
+                ? proof.header_hash?.substring(2)
+                : proof.header_hash;
+
+            if (
+                normalizedBlockHeaderHash === normalizedProofHeaderHash &&
+                normalizedProofHeaderHash !== undefined &&
+                normalizedBlockHeaderHash !== undefined
+            ) {
+                return {
+                    step: "On-Chain Verification",
+                    passed: true,
+                    message: `Proof fully verified on-chain: coin ID ${proof.coin_id} found in block ${matchingCoin.confirmed_block_index} with matching header hash and merkle root`,
+                };
+            } else {
+                return {
+                    step: "On-Chain Verification",
+                    passed: false,
+                    message: `Header hash mismatch: proof header hash (${proof.header_hash}) does not match block header hash (${blockHeaderHash})`,
+                };
+            }
+        } else {
+            return {
+                step: "On-Chain Verification",
+                passed: false,
+                message: `Coin ID ${proof.coin_id} not found in coinset for root hash ${proof.root_hash}`,
+            };
+        }
+    } catch (error) {
+        return {
+            step: "On-Chain Verification",
+            passed: false,
+            message: `Error verifying on-chain: ${error instanceof Error ? error.message : "Unknown error"}`,
+        };
+    }
 };
