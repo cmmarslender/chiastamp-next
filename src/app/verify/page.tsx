@@ -32,6 +32,7 @@ export default function VerifyPage(): React.ReactNode {
             setOriginalFile(file);
             setOriginalFileHash("");
             setIsCalculatingHash(true);
+            setUpdateMessage(""); // Reset update message when new file is selected
 
             try {
                 const hash = await calculateSHA256(file);
@@ -50,6 +51,7 @@ export default function VerifyPage(): React.ReactNode {
         const file = event.target.files?.[0];
         if (file) {
             setProofFile(file);
+            setUpdateMessage(""); // Reset update message when new proof file is selected
             await handleProofFileParse(file);
         }
     };
@@ -63,6 +65,7 @@ export default function VerifyPage(): React.ReactNode {
             setOriginalFile(file);
             setOriginalFileHash("");
             setIsCalculatingHash(true);
+            setUpdateMessage(""); // Reset update message when new file is dropped
 
             try {
                 const hash = await calculateSHA256(file);
@@ -80,6 +83,7 @@ export default function VerifyPage(): React.ReactNode {
         const file = event.dataTransfer.files[0];
         if (file) {
             setProofFile(file);
+            setUpdateMessage(""); // Reset update message when new proof file is dropped
             await handleProofFileParse(file);
         }
     };
@@ -235,6 +239,8 @@ export default function VerifyPage(): React.ReactNode {
                 error instanceof Error ? error.message : "Failed to parse proof file.",
             );
             setProofData(null);
+        } finally {
+            setUpdateMessage(""); // Clear update message regardless of success or failure
         }
     };
 
