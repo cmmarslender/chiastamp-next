@@ -117,9 +117,12 @@ export default function VerifyPage(): React.ReactNode {
             const hasChanges = compareProofs(proofData, updatedProof);
 
             if (hasChanges) {
+                // Update the local proof data with the new proof
+                setProofData(updatedProof);
+
                 // Download the new proof file
                 await downloadUpdatedProof(updatedProof);
-                setUpdateMessage("Updated proof downloaded successfully!");
+                setUpdateMessage("Updated proof downloaded and verification will be re-run!");
             } else {
                 // No changes found
                 setUpdateMessage(
