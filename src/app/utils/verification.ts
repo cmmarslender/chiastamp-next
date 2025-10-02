@@ -381,3 +381,19 @@ export const verifyOnChainVerification = async (
         };
     }
 };
+
+/**
+ * Checks if a proof is confirmed (has all blockchain fields filled in)
+ * @param proof - The proof to check
+ * @returns boolean indicating if the proof is confirmed
+ */
+export const isProofConfirmed = (proof: ProofResponse): boolean => {
+    // A proof is confirmed if it has all the blockchain fields filled in
+    return (
+        proof.confirmed === true &&
+        proof.header_hash !== null &&
+        proof.header_hash !== undefined &&
+        proof.coin_id !== null &&
+        proof.coin_id !== undefined
+    );
+};

@@ -8,6 +8,7 @@ import {
     verifySaltedFileHash,
     verifyLocalProof,
     verifyOnChainVerification,
+    isProofConfirmed,
 } from "../utils/verification";
 import type { ProofResponse } from "../types/proof";
 import type { VerificationResult, VerificationResults } from "../utils/verification";
@@ -133,18 +134,28 @@ export default function VerifyPage(): React.ReactNode {
             const hasChanges = compareProofs(proofData, updatedProof);
 
             if (hasChanges) {
-                // Preserve the salt from the original proof
-                const updatedProofWithSalt = {
-                    ...updatedProof,
-                    salt: proofData.salt, // Preserve the original salt
-                };
+                // Only download if the updated proof is confirmed (has all blockchain fields)
+                if (isProofConfirmed(updatedProof)) {
+                    // Preserve the salt from the original proof
+                    const updatedProofWithSalt = {
+                        ...updatedProof,
+                        salt: proofData.salt, // Preserve the original salt
+                    };
 
-                // Update the local proof data with the new proof (including salt)
-                setProofData(updatedProofWithSalt);
+                    // Update the local proof data with the new proof (including salt)
+                    setProofData(updatedProofWithSalt);
 
-                // Download the new proof file
-                await downloadUpdatedProof(updatedProof);
-                setUpdateMessage("Updated proof downloaded and verification will be re-run!");
+                    // Download the new proof file
+                    await downloadUpdatedProof(updatedProof);
+                    setUpdateMessage(
+                        "Updated confirmed proof downloaded and verification will be re-run!",
+                    );
+                } else {
+                    // Proof has changes but is not confirmed yet
+                    setUpdateMessage(
+                        "Proof has been updated but is not yet confirmed on the blockchain. Waiting for confirmation...",
+                    );
+                }
             } else {
                 // No changes found
                 setUpdateMessage(
@@ -171,13 +182,22 @@ export default function VerifyPage(): React.ReactNode {
     };
 
     const downloadUpdatedProof = async (updatedProof: ProofResponse): Promise<void> => {
-        if (!originalFile || !proofData) return;
+        if (!proofFile || !proofData) return;
 
         // Preserve the salt from the original proof
         const proofWithSalt = {
             ...updatedProof,
             salt: proofData.salt, // Preserve the original salt
         };
+
+        // Base filename on the uploaded proof file name (which might have (1), (2), etc.)
+        const isConfirmed = isProofConfirmed(updatedProof);
+        let newFileName = proofFile.name;
+
+        // Replace .json with .confirmed.json for confirmed proofs, keep .json for unconfirmed
+        if (isConfirmed && newFileName.endsWith(".json")) {
+            newFileName = newFileName.replace(".json", ".confirmed.json");
+        }
 
         // Create and download the updated JSON file
         const blob = new Blob([JSON.stringify(proofWithSalt, null, 2)], {
@@ -186,7 +206,7 @@ export default function VerifyPage(): React.ReactNode {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${originalFile.name}.proof.json`;
+        a.download = newFileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

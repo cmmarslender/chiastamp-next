@@ -3,6 +3,7 @@
 import React from "react";
 import { useState, useRef } from "react";
 import { calculateSaltedSHA256, generateSecureSalt } from "./utils/fileHash";
+import { isProofConfirmed } from "./utils/verification";
 
 export default function Home(): React.ReactNode {
     const [hash, setHash] = useState<string>("");
@@ -84,6 +85,9 @@ export default function Home(): React.ReactNode {
                 salt: salt,
             };
 
+            const isConfirmed = isProofConfirmed(data);
+            const fileExtension = isConfirmed ? ".proof.confirmed.json" : ".proof.json";
+
             // Create and download the JSON file
             const blob = new Blob([JSON.stringify(proofWithSalt, null, 2)], {
                 type: "application/json",
@@ -91,7 +95,7 @@ export default function Home(): React.ReactNode {
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `${fileName}.proof.json`;
+            a.download = `${fileName}${fileExtension}`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
