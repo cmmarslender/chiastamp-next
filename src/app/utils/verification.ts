@@ -1,5 +1,6 @@
 import type { ProofResponse } from "../types/proof";
 import { Position } from "../types/proof";
+import { calculateSaltedSHA256 } from "./fileHash";
 
 export interface VerificationResult {
     step: string;
@@ -131,6 +132,44 @@ export const verifyFileHash = (fileHash: string, proof: ProofResponse): Verifica
             ? "File hash matches the proof leaf hash"
             : `File hash (${fileHash}) does not match proof leaf hash (${proof.leaf_hash})`,
     };
+};
+
+/**
+ * Verifies that the salted file hash matches the leaf_hash in the proof
+ * @param file - The file to verify
+ * @param proof - The parsed proof data containing the salt
+ * @returns Promise<VerificationResult> indicating if the salted hashes match
+ */
+export const verifySaltedFileHash = async (
+    file: File,
+    proof: ProofResponse,
+): Promise<VerificationResult> => {
+    if (!proof.salt) {
+        return {
+            step: "Salted File Hash Match",
+            passed: false,
+            message: "Proof does not contain salt information",
+        };
+    }
+
+    try {
+        const calculatedSaltedHash = await calculateSaltedSHA256(file, proof.salt);
+        const hashMatch = calculatedSaltedHash.toLowerCase() === proof.leaf_hash.toLowerCase();
+
+        return {
+            step: "Salted File Hash Match",
+            passed: hashMatch,
+            message: hashMatch
+                ? "Salted file hash matches the proof leaf hash"
+                : `Salted file hash (${calculatedSaltedHash}) does not match proof leaf hash (${proof.leaf_hash})`,
+        };
+    } catch (error) {
+        return {
+            step: "Salted File Hash Match",
+            passed: false,
+            message: `Error calculating salted hash: ${error instanceof Error ? error.message : "Unknown error"}`,
+        };
+    }
 };
 
 /**

@@ -2,10 +2,11 @@
 
 import React from "react";
 import { useState, useRef } from "react";
-import { calculateSHA256 } from "./utils/fileHash";
+import { calculateSaltedSHA256, generateSecureSalt } from "./utils/fileHash";
 
 export default function Home(): React.ReactNode {
     const [hash, setHash] = useState<string>("");
+    const [salt, setSalt] = useState<string>("");
     const [fileName, setFileName] = useState<string>("");
     const [isCalculating, setIsCalculating] = useState<boolean>(false);
     const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -15,9 +16,15 @@ export default function Home(): React.ReactNode {
         setIsCalculating(true);
         setFileName(file.name);
         setHash("");
+        setSalt("");
 
         try {
-            const calculatedHash = await calculateSHA256(file);
+            // Generate a secure random salt
+            const generatedSalt = await generateSecureSalt();
+            setSalt(generatedSalt);
+
+            // Calculate salted hash
+            const calculatedHash = await calculateSaltedSHA256(file, generatedSalt);
             setHash(calculatedHash);
         } catch {
             setHash("Error calculating hash");
@@ -71,8 +78,16 @@ export default function Home(): React.ReactNode {
 
             const data = await response.json();
 
+            // Add the salt to the proof data (don't send salt to server)
+            const proofWithSalt = {
+                ...data,
+                salt: salt,
+            };
+
             // Create and download the JSON file
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+            const blob = new Blob([JSON.stringify(proofWithSalt, null, 2)], {
+                type: "application/json",
+            });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
@@ -95,10 +110,11 @@ export default function Home(): React.ReactNode {
                         Stamp a File
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400 mb-8">
-                        Select a file to calculate its SHA256 hash. The file will be processed
-                        locally in your browser and the hash will be sent to the server for
-                        inclusion in a block. Once included, you can prove that the file existed at
-                        the time of the block.
+                        Select a file to calculate its salted SHA256 hash. A secure random salt will
+                        be generated in your browser and combined with the file bytes before
+                        hashing. The file will be processed locally in your browser and the hash
+                        will be sent to the server for inclusion in a block. Once included, you can
+                        prove that the file existed at the time of the block.
                     </p>
 
                     <div
@@ -134,26 +150,37 @@ export default function Home(): React.ReactNode {
                         <div className="mt-6 text-center">
                             <div className="inline-flex items-center space-x-2 text-blue-600 dark:text-blue-400">
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 dark:border-blue-400"></div>
-                                <span>Calculating SHA256 hash...</span>
+                                <span>Generating salt and calculating salted SHA256 hash...</span>
                             </div>
                         </div>
                     )}
 
                     {hash && !isCalculating && (
-                        <div className="mt-6">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                SHA256 Hash:
-                            </label>
-                            <div className="flex items-center space-x-2">
-                                <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-md p-3 font-mono text-sm break-all">
-                                    {hash}
+                        <div className="mt-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Salt (32 bytes):
+                                </label>
+                                <div className="bg-gray-100 dark:bg-gray-700 rounded-md p-3 font-mono text-sm break-all">
+                                    {salt}
                                 </div>
-                                <button
-                                    onClick={copyToClipboard}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
-                                >
-                                    Copy
-                                </button>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Salted SHA256 Hash:
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                    <div className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-md p-3 font-mono text-sm break-all">
+                                        {hash}
+                                    </div>
+                                    <button
+                                        onClick={copyToClipboard}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                                    >
+                                        Copy Hash
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="mt-4">
@@ -178,7 +205,8 @@ export default function Home(): React.ReactNode {
                     <div className="mt-8 text-xs text-gray-500 dark:text-gray-400">
                         <p>
                             🔒 The file is processed locally in your browser and never uploaded to
-                            any server.
+                            any server. The salt is generated securely in your browser and only the
+                            salted hash is sent to the server.
                         </p>
                     </div>
                 </div>

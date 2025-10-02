@@ -1,9 +1,14 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { calculateSHA256 } from "../utils/fileHash";
+import { calculateSHA256, calculateSaltedSHA256 } from "../utils/fileHash";
 import { parseProofFile } from "../utils/proofParser";
-import { verifyFileHash, verifyLocalProof, verifyOnChainVerification } from "../utils/verification";
+import {
+    verifyFileHash,
+    verifySaltedFileHash,
+    verifyLocalProof,
+    verifyOnChainVerification,
+} from "../utils/verification";
 import type { ProofResponse } from "../types/proof";
 import type { VerificationResult, VerificationResults } from "../utils/verification";
 
@@ -93,18 +98,29 @@ export default function VerifyPage(): React.ReactNode {
     };
 
     const handleCheckForUpdatedProof = async (): Promise<void> => {
-        if (!originalFileHash || !proofData) return;
+        if (!proofData) return;
 
         setIsCheckingForUpdate(true);
         setUpdateMessage("");
         try {
+            // Use the salted hash if salt is present, otherwise use the regular file hash
+            const hashToSend =
+                proofData.salt && originalFile
+                    ? await calculateSaltedSHA256(originalFile, proofData.salt)
+                    : originalFileHash;
+
+            if (!hashToSend) {
+                setUpdateMessage("Cannot check for updates: no hash available");
+                return;
+            }
+
             // Call the API to check for updated proof
             const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/proof`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ hash: originalFileHash }),
+                body: JSON.stringify({ hash: hashToSend }),
             });
 
             if (!response.ok) {
@@ -117,8 +133,14 @@ export default function VerifyPage(): React.ReactNode {
             const hasChanges = compareProofs(proofData, updatedProof);
 
             if (hasChanges) {
-                // Update the local proof data with the new proof
-                setProofData(updatedProof);
+                // Preserve the salt from the original proof
+                const updatedProofWithSalt = {
+                    ...updatedProof,
+                    salt: proofData.salt, // Preserve the original salt
+                };
+
+                // Update the local proof data with the new proof (including salt)
+                setProofData(updatedProofWithSalt);
 
                 // Download the new proof file
                 await downloadUpdatedProof(updatedProof);
@@ -137,7 +159,7 @@ export default function VerifyPage(): React.ReactNode {
     };
 
     const compareProofs = (currentProof: ProofResponse, updatedProof: ProofResponse): boolean => {
-        // Compare all fields to detect any changes
+        // Compare all fields to detect any changes (excluding salt since server doesn't have it)
         return (
             currentProof.confirmed !== updatedProof.confirmed ||
             currentProof.header_hash !== updatedProof.header_hash ||
@@ -149,10 +171,16 @@ export default function VerifyPage(): React.ReactNode {
     };
 
     const downloadUpdatedProof = async (updatedProof: ProofResponse): Promise<void> => {
-        if (!originalFile) return;
+        if (!originalFile || !proofData) return;
+
+        // Preserve the salt from the original proof
+        const proofWithSalt = {
+            ...updatedProof,
+            salt: proofData.salt, // Preserve the original salt
+        };
 
         // Create and download the updated JSON file
-        const blob = new Blob([JSON.stringify(updatedProof, null, 2)], {
+        const blob = new Blob([JSON.stringify(proofWithSalt, null, 2)], {
             type: "application/json",
         });
         const url = URL.createObjectURL(blob);
@@ -271,7 +299,7 @@ export default function VerifyPage(): React.ReactNode {
     // Run verification when both file hash and proof data are available
     useEffect(() => {
         const runVerification = async (): Promise<void> => {
-            if (originalFileHash && proofData) {
+            if (originalFile && proofData) {
                 const results: VerificationResults = {
                     fileHashMatch: null,
                     localProof: null,
@@ -279,7 +307,21 @@ export default function VerifyPage(): React.ReactNode {
                 };
 
                 // Verify file hash matches leaf hash
-                results.fileHashMatch = verifyFileHash(originalFileHash, proofData);
+                // Use salted verification if salt is present in proof, otherwise use regular verification
+                if (proofData.salt) {
+                    results.fileHashMatch = await verifySaltedFileHash(originalFile, proofData);
+                } else {
+                    // Fallback to regular hash verification for backward compatibility
+                    if (originalFileHash) {
+                        results.fileHashMatch = verifyFileHash(originalFileHash, proofData);
+                    } else {
+                        results.fileHashMatch = {
+                            step: "File Hash Match",
+                            passed: false,
+                            message: "Cannot verify: no file hash available and proof has no salt",
+                        };
+                    }
+                }
 
                 // Only proceed with local proof verification if file hash matches
                 if (results.fileHashMatch.passed) {
@@ -321,7 +363,7 @@ export default function VerifyPage(): React.ReactNode {
         };
 
         runVerification();
-    }, [originalFileHash, proofData]);
+    }, [originalFile, originalFileHash, proofData]);
 
     const handleProofFileParse = async (file: File): Promise<void> => {
         try {

@@ -15,4 +15,5 @@ export interface ProofResponse {
     root_hash: string;
     leaf_hash: string;
     proof: ProofStep[];
+    salt?: string; // Salt used for hashing (hex string). Optional, for compat with early test versions that did not salt.
 }
