@@ -514,17 +514,6 @@ export default function VerifyPage(): React.ReactNode {
                                     </div>
                                 </div>
                             )}
-
-                            {originalFileHash && !isCalculatingHash && (
-                                <div className="mt-4">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        File Hash:
-                                    </label>
-                                    <div className="bg-gray-100 dark:bg-gray-700 rounded-md p-3 font-mono text-xs break-all">
-                                        {originalFileHash}
-                                    </div>
-                                </div>
-                            )}
                         </div>
 
                         {/* Proof File Upload */}
@@ -573,35 +562,34 @@ export default function VerifyPage(): React.ReactNode {
                                     </p>
                                 </div>
                             )}
-
-                            {/* Proof Data Display */}
-                            {proofData && !proofParseError && (
-                                <div className="mt-4">
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        Parsed Proof Data:
-                                    </label>
-                                    <div className="bg-gray-100 dark:bg-gray-700 rounded-md p-3">
-                                        <pre className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-all">
-                                            {JSON.stringify(proofData, null, 2)}
-                                        </pre>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
 
                     {/* Status Display */}
-                    {(originalFile || proofFile) && (
-                        <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-                                Files Ready:
-                            </h3>
-                            <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-                                {originalFile && <p>✓ Original file: {originalFile.name}</p>}
-                                {proofFile && <p>✓ Proof file: {proofFile.name}</p>}
+                    <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+                            Files Ready:
+                        </h3>
+                        <div className="space-y-1 text-sm">
+                            <div className="flex items-center space-x-2">
+                                <span className={originalFile ? "text-green-600" : "text-red-600"}>
+                                    {originalFile ? "✓" : "✗"}
+                                </span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    Original file:{" "}
+                                    {originalFile ? originalFile.name : "Not uploaded"}
+                                </span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <span className={proofFile ? "text-green-600" : "text-red-600"}>
+                                    {proofFile ? "✓" : "✗"}
+                                </span>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    Proof file: {proofFile ? proofFile.name : "Not uploaded"}
+                                </span>
                             </div>
                         </div>
-                    )}
+                    </div>
 
                     {/* Verification Results */}
                     {(verificationResults.fileHashMatch ||
