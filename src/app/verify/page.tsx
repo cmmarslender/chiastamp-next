@@ -153,7 +153,7 @@ export default function VerifyPage(): React.ReactNode {
                 } else {
                     // Proof has changes but is not confirmed yet
                     setUpdateMessage(
-                        "Proof has been updated but is not yet confirmed on the blockchain. Waiting for confirmation...",
+                        "Proof has been updated but is not yet confirmed on the blockchain. Wait a few minutes and try again.",
                     );
                 }
             } else {
