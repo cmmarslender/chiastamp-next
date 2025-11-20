@@ -40,6 +40,16 @@ export default function Navigation(): React.ReactNode {
                         >
                             Verify
                         </Link>
+                        <Link
+                            href="/about"
+                            className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                pathname === "/about"
+                                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
+                                    : "text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+                            }`}
+                        >
+                            About
+                        </Link>
                     </div>
                 </div>
             </div>
