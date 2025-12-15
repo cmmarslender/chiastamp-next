@@ -27,6 +27,7 @@ export default function VerifyPage(): React.ReactNode {
     });
     const [isCheckingForUpdate, setIsCheckingForUpdate] = useState<boolean>(false);
     const [updateMessage, setUpdateMessage] = useState<string>("");
+    const [fileDropError, setFileDropError] = useState<string>("");
     const originalFileInputRef = useRef<HTMLInputElement>(null);
     const proofFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,36 +67,120 @@ export default function VerifyPage(): React.ReactNode {
         event: React.DragEvent<HTMLDivElement>,
     ): Promise<void> => {
         event.preventDefault();
-        const file = event.dataTransfer.files[0];
-        if (file) {
-            setOriginalFile(file);
+        const files = event.dataTransfer.files;
+
+        if (files.length === 0) return;
+
+        // If multiple files, process them together
+        if (files.length > 1) {
+            await processMultipleFiles(files);
+            return;
+        }
+
+        // Single file - treat as original file (no smart detection)
+        const file = files[0];
+        setFileDropError("");
+        setOriginalFile(file);
+        setOriginalFileHash("");
+        setIsCalculatingHash(true);
+        setUpdateMessage("");
+
+        try {
+            const hash = await calculateSHA256(file);
+            setOriginalFileHash(hash);
+        } catch {
+            setOriginalFileHash("Error calculating hash");
+        } finally {
+            setIsCalculatingHash(false);
+        }
+    };
+
+    const handleProofFileDrop = async (event: React.DragEvent<HTMLDivElement>): Promise<void> => {
+        event.preventDefault();
+        const files = event.dataTransfer.files;
+
+        if (files.length === 0) return;
+
+        // If multiple files, process them together
+        if (files.length > 1) {
+            await processMultipleFiles(files);
+            return;
+        }
+
+        // Single file - treat as proof file (no smart detection)
+        const file = files[0];
+        setFileDropError("");
+        setProofFile(file);
+        setUpdateMessage("");
+        await handleProofFileParse(file);
+    };
+
+    const handleDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+        event.preventDefault();
+    };
+
+    // Helper function to check if a file is a proof file based on naming convention
+    const isProofFile = (fileName: string): boolean => {
+        return fileName.endsWith(".proof.json") || fileName.endsWith(".proof.confirmed.json");
+    };
+
+    // Process multiple files and determine which is the proof and which is the original file
+    const processMultipleFiles = async (files: FileList): Promise<void> => {
+        setFileDropError("");
+
+        // Convert FileList to Array
+        const fileArray = Array.from(files);
+
+        // If exactly 2 files, try to determine which is which
+        if (fileArray.length === 2) {
+            const proofFiles = fileArray.filter((file) => isProofFile(file.name));
+            const nonProofFiles = fileArray.filter((file) => !isProofFile(file.name));
+
+            // Error if both are proof files
+            if (proofFiles.length === 2) {
+                setFileDropError(
+                    "Both files appear to be proof files. Please drop one original file and one proof file.",
+                );
+                return;
+            }
+
+            // Error if neither is a proof file
+            if (proofFiles.length === 0) {
+                setFileDropError(
+                    "Could not identify which file is the proof. Please ensure one file ends with .proof.json or .proof.confirmed.json",
+                );
+                return;
+            }
+
+            // We have exactly one proof file and one non-proof file
+            const proofFile = proofFiles[0];
+            const originalFile = nonProofFiles[0];
+
+            // Set the proof file
+            setProofFile(proofFile);
+            setUpdateMessage("");
+            await handleProofFileParse(proofFile);
+
+            // Set the original file and calculate hash
+            setOriginalFile(originalFile);
             setOriginalFileHash("");
             setIsCalculatingHash(true);
-            setUpdateMessage(""); // Reset update message when new file is dropped
+            setUpdateMessage("");
 
             try {
-                const hash = await calculateSHA256(file);
+                const hash = await calculateSHA256(originalFile);
                 setOriginalFileHash(hash);
             } catch {
                 setOriginalFileHash("Error calculating hash");
             } finally {
                 setIsCalculatingHash(false);
             }
+        } else {
+            // More than 2 files
+            setFileDropError(
+                "Please drop exactly two files (one original file and one proof file) or drop them separately into their respective boxes.",
+            );
         }
-    };
-
-    const handleProofFileDrop = async (event: React.DragEvent<HTMLDivElement>): Promise<void> => {
-        event.preventDefault();
-        const file = event.dataTransfer.files[0];
-        if (file) {
-            setProofFile(file);
-            setUpdateMessage(""); // Reset update message when new proof file is dropped
-            await handleProofFileParse(file);
-        }
-    };
-
-    const handleDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
-        event.preventDefault();
     };
 
     const handleCheckForUpdatedProof = async (): Promise<void> => {
@@ -468,6 +553,30 @@ export default function VerifyPage(): React.ReactNode {
                         </div>
                     )}
 
+                    {/* File Drop Error */}
+                    {fileDropError && (
+                        <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                            <div className="flex items-center space-x-2">
+                                <div className="flex-shrink-0">
+                                    <svg
+                                        className="w-5 h-5 text-red-600 dark:text-red-400"
+                                        fill="currentColor"
+                                        viewBox="0 0 20 20"
+                                    >
+                                        <path
+                                            fillRule="evenodd"
+                                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                            clipRule="evenodd"
+                                        />
+                                    </svg>
+                                </div>
+                                <p className="text-sm text-red-800 dark:text-red-200">
+                                    {fileDropError}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Original File Upload */}
                         <div>
@@ -499,7 +608,9 @@ export default function VerifyPage(): React.ReactNode {
                                                 : "Click to select original file"}
                                         </p>
                                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                            {originalFile ? "File selected" : "or drag and drop"}
+                                            {originalFile
+                                                ? "File selected"
+                                                : "or drag and drop (you can drop both files here)"}
                                         </p>
                                     </div>
                                 </div>
@@ -548,7 +659,7 @@ export default function VerifyPage(): React.ReactNode {
                                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                             {proofFile
                                                 ? "Proof selected"
-                                                : "or drag and drop (.json)"}
+                                                : "or drag and drop (.json) (you can drop both files here)"}
                                         </p>
                                     </div>
                                 </div>
