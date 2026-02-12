@@ -158,6 +158,12 @@ Same `ProofResponse` schema as `/stamp`.
 
 If changed and now confirmed, persist updated proof fields while preserving your original local `salt`.
 
+### Partial proof vs full proof (important)
+
+- A **partial proof** has the Merkle data (`leaf_hash`, `root_hash`, `proof`) but is not yet fully anchored for independent chain verification.
+- A **full proof** is a proof that has been included in a blockchain block, represented by `confirmed: true` plus `coin_id` and `header_hash`.
+- After receiving a partial proof, call `POST /proof` every few minutes (not continuously) to check for an updated full proof, and replace your stored copy when it arrives.
+
 ## 6) Verification steps and responsibility split
 
 ### A) Client-side checks (local, no backend trust needed)
@@ -194,6 +200,14 @@ All verification RPC calls in this model can be directed to:
 - your own fully synced Chia full node RPC endpoint
 
 The method names and JSON payloads stay the same; only the base URL/transport target changes.
+
+Once you have a full proof, verification can be performed independently using only:
+
+- your original file
+- your proof JSON (including salt)
+- access to chain RPC (for example, your own fully synced full node)
+
+At that point, ChiaStamp does not need to be involved in the verification process.
 
 ### RPC base URL
 
